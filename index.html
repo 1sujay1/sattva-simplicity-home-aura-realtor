@@ -300,8 +300,9 @@
       
       .gallery-track {
         display: flex;
-        transition: transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        transition: transform 0.3s ease-out;
         cursor: grab;
+        will-change: transform;
       }
       
       .gallery-track:active {
@@ -356,26 +357,14 @@
         right: 20px;
       }
       
-      .gallery-dots {
-        display: flex;
-        justify-content: center;
-        gap: 10px;
-        margin-top: 20px;
+      .gallery-nav:disabled,
+      .gallery-nav.disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        pointer-events: none;
       }
       
-      .gallery-dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: rgba(228, 179, 99, 0.3);
-        cursor: pointer;
-        transition: all 0.3s ease;
-      }
-      
-      .gallery-dot.active {
-        background: #e4b363;
-        transform: scale(1.2);
-      }
+      /* Removed dots navigation for infinite carousel */
 
       /* Enhanced Animations */
       @keyframes fadeIn {
@@ -910,16 +899,6 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
               </div>
             </div>
           </div>
-          
-          <!-- Dots Navigation -->
-          <div class="gallery-dots" id="gallery-dots">
-            <div class="gallery-dot active" data-slide="0"></div>
-            <div class="gallery-dot" data-slide="1"></div>
-            <div class="gallery-dot" data-slide="2"></div>
-            <div class="gallery-dot" data-slide="3"></div>
-            <div class="gallery-dot" data-slide="4"></div>
-            <div class="gallery-dot" data-slide="5"></div>
-          </div>
         </div>
       </section>
 
@@ -1118,32 +1097,39 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
         document.getElementById('message-box-overlay').classList.remove('show');
       }
 
-      // --- Gallery Carousel Functionality ---
-      class GalleryCarousel {
+      // --- Bounded Gallery Carousel Functionality ---
+      class BoundedGalleryCarousel {
         constructor() {
-          this.currentSlide = 0;
-          this.totalSlides = 6;
           this.track = document.getElementById('gallery-track');
           this.prevBtn = document.getElementById('gallery-prev');
           this.nextBtn = document.getElementById('gallery-next');
-          this.dots = document.querySelectorAll('.gallery-dot');
-          this.isAutoPlaying = true;
+          this.slides = this.track?.querySelectorAll('.gallery-slide') || [];
+          this.totalSlides = this.slides.length;
+          this.currentIndex = 0;
+          this.slideWidth = 0;
+          this.containerWidth = 0;
+          this.visibleSlides = 1;
+          this.maxIndex = 0;
+          this.isTransitioning = false;
           this.autoPlayInterval = null;
+          this.isAutoPlaying = true;
           
           this.init();
         }
         
         init() {
-          if (!this.track) return;
+          if (!this.track || this.totalSlides === 0) return;
+          
+          // Calculate dimensions
+          this.calculateDimensions();
+          
+          // Set initial position
+          this.setPosition(0, false);
+          this.updateNavigationState();
           
           // Add event listeners
           this.prevBtn?.addEventListener('click', () => this.prevSlide());
           this.nextBtn?.addEventListener('click', () => this.nextSlide());
-          
-          // Dot navigation
-          this.dots.forEach((dot, index) => {
-            dot.addEventListener('click', () => this.goToSlide(index));
-          });
           
           // Touch/drag support
           this.addTouchSupport();
@@ -1154,41 +1140,105 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
           // Pause on hover
           this.track.addEventListener('mouseenter', () => this.pauseAutoPlay());
           this.track.addEventListener('mouseleave', () => this.startAutoPlay());
-        }
-        
-        updateSlide() {
-          const slideWidth = this.track.querySelector('.gallery-slide').offsetWidth;
-          const translateX = -this.currentSlide * slideWidth;
-          this.track.style.transform = `translateX(${translateX}px)`;
           
-          // Update dots
-          this.dots.forEach((dot, index) => {
-            dot.classList.toggle('active', index === this.currentSlide);
+          // Handle window resize
+          window.addEventListener('resize', () => {
+            this.calculateDimensions();
+            this.setPosition(this.currentIndex, false);
+            this.updateNavigationState();
           });
         }
         
+        calculateDimensions() {
+          if (!this.track || this.slides.length === 0) return;
+          
+          const slide = this.slides[0];
+          const container = this.track.parentElement;
+          
+          this.slideWidth = slide.offsetWidth;
+          this.containerWidth = container.offsetWidth;
+          
+          // Calculate how many slides are visible based on screen size
+          if (window.innerWidth >= 1024) {
+            this.visibleSlides = Math.min(4, this.totalSlides);
+          } else if (window.innerWidth >= 768) {
+            this.visibleSlides = Math.min(3, this.totalSlides);
+          } else {
+            this.visibleSlides = 1;
+          }
+          
+          // Calculate maximum index (last position where we can scroll)
+          this.maxIndex = Math.max(0, this.totalSlides - this.visibleSlides);
+        }
+        
+        setPosition(index, animate = true) {
+          if (animate) {
+            this.track.style.transition = 'transform 0.3s ease-out';
+          } else {
+            this.track.style.transition = 'none';
+          }
+          
+          const translateX = -index * this.slideWidth;
+          this.track.style.transform = `translateX(${translateX}px)`;
+        }
+        
+        updateNavigationState() {
+          // Disable/enable previous button
+          if (this.prevBtn) {
+            if (this.currentIndex <= 0) {
+              this.prevBtn.classList.add('disabled');
+            } else {
+              this.prevBtn.classList.remove('disabled');
+            }
+          }
+          
+          // Disable/enable next button
+          if (this.nextBtn) {
+            if (this.currentIndex >= this.maxIndex) {
+              this.nextBtn.classList.add('disabled');
+            } else {
+              this.nextBtn.classList.remove('disabled');
+            }
+          }
+        }
+        
         nextSlide() {
-          this.currentSlide = (this.currentSlide + 1) % this.totalSlides;
-          this.updateSlide();
+          if (this.isTransitioning || this.currentIndex >= this.maxIndex) return;
+          
+          this.isTransitioning = true;
+          this.currentIndex++;
+          
+          this.setPosition(this.currentIndex, true);
+          this.updateNavigationState();
+          
+          setTimeout(() => {
+            this.isTransitioning = false;
+          }, 300);
         }
         
         prevSlide() {
-          this.currentSlide = (this.currentSlide - 1 + this.totalSlides) % this.totalSlides;
-          this.updateSlide();
-        }
-        
-        goToSlide(index) {
-          this.currentSlide = index;
-          this.updateSlide();
+          if (this.isTransitioning || this.currentIndex <= 0) return;
+          
+          this.isTransitioning = true;
+          this.currentIndex--;
+          
+          this.setPosition(this.currentIndex, true);
+          this.updateNavigationState();
+          
+          setTimeout(() => {
+            this.isTransitioning = false;
+          }, 300);
         }
         
         addTouchSupport() {
           let startX = 0;
           let currentX = 0;
           let isDragging = false;
+          let startTime = 0;
           
           this.track.addEventListener('touchstart', (e) => {
             startX = e.touches[0].clientX;
+            startTime = Date.now();
             isDragging = true;
             this.pauseAutoPlay();
           });
@@ -1204,7 +1254,10 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
             isDragging = false;
             
             const diff = startX - currentX;
-            if (Math.abs(diff) > 50) {
+            const timeDiff = Date.now() - startTime;
+            const velocity = Math.abs(diff) / timeDiff;
+            
+            if (Math.abs(diff) > 50 || velocity > 0.3) {
               if (diff > 0) {
                 this.nextSlide();
               } else {
@@ -1217,9 +1270,11 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
           // Mouse drag support
           this.track.addEventListener('mousedown', (e) => {
             startX = e.clientX;
+            startTime = Date.now();
             isDragging = true;
             this.track.style.cursor = 'grabbing';
             this.pauseAutoPlay();
+            e.preventDefault();
           });
           
           document.addEventListener('mousemove', (e) => {
@@ -1233,7 +1288,10 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
             this.track.style.cursor = 'grab';
             
             const diff = startX - currentX;
-            if (Math.abs(diff) > 50) {
+            const timeDiff = Date.now() - startTime;
+            const velocity = Math.abs(diff) / timeDiff;
+            
+            if (Math.abs(diff) > 50 || velocity > 0.3) {
               if (diff > 0) {
                 this.nextSlide();
               } else {
@@ -1246,13 +1304,24 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
         
         startAutoPlay() {
           if (!this.isAutoPlaying) return;
+          this.pauseAutoPlay();
           this.autoPlayInterval = setInterval(() => {
-            this.nextSlide();
-          }, 4000);
+            if (this.currentIndex >= this.maxIndex) {
+              // Reset to beginning when reaching the end
+              this.currentIndex = 0;
+              this.setPosition(this.currentIndex, true);
+              this.updateNavigationState();
+            } else {
+              this.nextSlide();
+            }
+          }, 3000);
         }
         
         pauseAutoPlay() {
-          clearInterval(this.autoPlayInterval);
+          if (this.autoPlayInterval) {
+            clearInterval(this.autoPlayInterval);
+            this.autoPlayInterval = null;
+          }
         }
       }
 
@@ -1285,8 +1354,8 @@ Inspired by the philosophy that “simplicity is the ultimate sophistication,”
 
       // --- Main Script ---
       document.addEventListener('DOMContentLoaded', () => {
-        // Initialize Gallery Carousel
-        new GalleryCarousel();
+        // Initialize Bounded Gallery Carousel
+        new BoundedGalleryCarousel();
         
         // Initialize Scroll Animations
         initScrollAnimations();
